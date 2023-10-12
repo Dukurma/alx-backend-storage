@@ -1,28 +1,15 @@
--- A SQL script that creates a function SafeDiv that divides 
---(and returns) the first by the second number or returns 0 if the second number is equal to 0.
---Requirements:
---You must create a function
---The function SafeDiv takes 2 arguments:
---a, INT
---b, INT
---And returns a / b or 0 if b == 0
-
-
-DELIMITER //
-
--- Create the function
-CREATE FUNCTION SafeDiv(a INT, b INT) RETURNS INT DETERMINISTIC
+-- creates a function SafeDiv that divides (and returns) the first
+-- by the second number or returns 0 if the second number is equal to 0.
+DROP FUNCTION IF EXISTS SafeDiv;
+DELIMITER $$
+CREATE FUNCTION SafeDiv (a INT, b INT)
+RETURNS FLOAT DETERMINISTIC
 BEGIN
-    DECLARE result INT;
+    DECLARE result FLOAT DEFAULT 0;
 
-    -- Check if b is zero
-    IF b = 0 THEN
-        SET result = 0;
-    ELSE
+    IF b != 0 THEN
         SET result = a / b;
     END IF;
-
     RETURN result;
-END //
-
+END $$
 DELIMITER ;
