@@ -1,139 +1,81 @@
 #!/usr/bin/env python3
-
+"""
+Building a simple cache
+Create a Cache class. In the __init__ method, store an instance of the Redis
+"""
 from typing import Callable, Optional, Union
-from uuid import uuid4
 import redis
+import sys
+import uuid
 from functools import wraps
-
-'''
-    Writing strings to Redis.
-'''
 
 
 def count_calls(method: Callable) -> Callable:
-    '''
-        Counts the number of times a method is called.
-    '''
+    """count number of calls made to a method"""
+    key = method.__qualname__
 
     @wraps(method)
-    def wrapper(self, *args, **kwargs):
-        '''
-            Wrapper function.
-        '''
-        key = method.__qualname__
+    def counter(self, *args, **kwargs):
+        """decorator method"""
         self._redis.incr(key)
         return method(self, *args, **kwargs)
-    return wrapper
+    return counter
 
 
 def call_history(method: Callable) -> Callable:
-    """ Decorator to store the history of inputs and
-    outputs for a particular function.
-    """
+    """store the history of inputs and outputs for a particular function"""
+    @wraps(method)
+    def history_wrapper(self, *args, **kwargs):
+        """set list keys to a wrapped function"""
+        in_list_key = method.__qualname__ + ":inputs"
+        out_list_key = method.__qualname__ + ":outputs"
+        self._redis.rpush(in_list_key, str(args))
+        output = method(self, *args, **kwargs)
+        self._redis.rpush(out_list_key, str(output))
+        return output
+    return history_wrapper
+
+
+def replay(method: Callable) -> None:
+    """function displays the history of calls of a particular function"""
     key = method.__qualname__
     inputs = key + ":inputs"
     outputs = key + ":outputs"
+    server = method.__self__._redis
+    count = server.get(key).decode("utf-8")
+    print(f"{key} was called {count} times:")
+    input_list = server.lrange(inputs, 0, -1)
+    output_list = server.lrange(outputs, 0, -1)
+    zipped = list(zip(input_list, output_list))
+    for k, v in zipped:
+        attr, result = k.decode("utf-8"), k.decode("utf-8")
+        print(f"{key}(*{attr}) -> {result}")
 
-    @wraps(method)
-    def wrapper(self, *args, **kwargs):  # sourcery skip: avoid-builtin-shadow
-        """ Wrapper for decorator functionality """
-        self._redis.rpush(inputs, str(args))
-        data = method(self, *args, **kwargs)
-        self._redis.rpush(outputs, str(data))
-        return data
-
-    return wrapper
-
-
-'''def replay(method: Callable) -> None:
-    # sourcery skip: use-fstring-for-concatenation, use-fstring-for-formatting
-    """
-    Replays the history of a function
-    Args:
-        method: The function to be decorated
-    Returns:
-        None
-    """
-    name = method.__qualname__
-    cache = redis.Redis()
-    calls = cache.get(name).decode("utf-8")
-    print("{} was called {} times:".format(name, calls))
-    inputs = cache.lrange(name + ":inputs", 0, -1)
-    outputs = cache.lrange(name + ":outputs", 0, -1)
-    for i, o in zip(inputs, outputs):
-        print("{}(*{}) -> {}".format(name, i.decode('utf-8'),
-                                     o.decode('utf-8')))
-'''
-
-def replay(fn: Callable) -> None:
-    '''Displays the call history of a Cache class' method.
-    '''
-    if fn is None or not hasattr(fn, '__self__'):
-        return
-    redis_store = getattr(fn.__self__, '_redis', None)
-    if not isinstance(redis_store, redis.Redis):
-        return
-    fxn_name = fn.__qualname__
-    in_key = '{}:inputs'.format(fxn_name)
-    out_key = '{}:outputs'.format(fxn_name)
-    fxn_call_count = 0
-    if redis_store.exists(fxn_name) != 0:
-        fxn_call_count = int(redis_store.get(fxn_name))
-    print('{} was called {} times:'.format(fxn_name, fxn_call_count))
-    fxn_inputs = redis_store.lrange(in_key, 0, -1)
-    fxn_outputs = redis_store.lrange(out_key, 0, -1)
-    for fxn_input, fxn_output in zip(fxn_inputs, fxn_outputs):
-        print('{}(*{}) -> {}'.format(
-            fxn_name,
-            fxn_input.decode("utf-8"),
-            fxn_output,
-        ))
 
 class Cache:
-    '''
-        Cache class.
-    '''
-    def __init__(self):
-        '''
-            Initialize the cache.
-        '''
+    """cache class"""
+    def __init__(self) -> None:
+        """ Instant of Cache class """
         self._redis = redis.Redis()
         self._redis.flushdb()
 
-    @count_calls
     @call_history
+    @count_calls
     def store(self, data: Union[str, bytes, int, float]) -> str:
-        '''
-            Store data in the cache.
-        '''
-        randomKey = str(uuid4())
-        self._redis.set(randomKey, data)
-        return randomKey
+        """this method takes data argument and returns a string"""
+        key = uuid.uuid4()
+        self._redis.set(str(key), data)
+        return str(key)
 
-    def get(self, key: str,
-            fn: Optional[Callable] = None) -> Union[str, bytes, int, float]:
-        '''
-            Get data from the cache.
-        '''
-        value = self._redis.get(key)
-        if fn:
-            value = fn(value)
-        return value
+    def get(self, key: str, fn: Optional[Callable] = None) ->\
+            Union[str, bytes, int, float]:
+        """retieves value from server, convert it to desired format"""
+        return fn(self._redis.get(key)) if fn else self._redis.get(key)
 
-    def get_str(self, key: str) -> str:
-        '''
-            Get a string from the cache.
-        '''
-        value = self._redis.get(key)
-        return value.decode('utf-8')
+    def get_int(self, data_bytes: bytes) -> int:
+        """convert data bytes from server back to int"""
+        return int.from_bytes(data_bytes, sys.byteorder)
 
-    def get_int(self, key: str) -> int:
-        '''
-            Get an int from the cache.
-        '''
-        value = self._redis.get(key)
-        try:
-            value = int(value.decode('utf-8'))
-        except Exception:
-            value = 0
-        return value
+    def get_str(self, data_bytes: bytes) -> str:
+        """convert data bytes from server back into str"""
+        return data_bytes.decode('utf-8')
