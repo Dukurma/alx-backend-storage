@@ -1,39 +1,33 @@
 #!/usr/bin/env python3
-"""Print info in a collection"""
+""" 12. Log stats
+"""
+
+
 from pymongo import MongoClient
 
-if __name__ == "__main__":
-    """ Make a check for all elements in a collention """
+
+def log_stats():
+    """ log_stats.
+    """
     client = MongoClient('mongodb://127.0.0.1:27017')
-    collection = client.logs.nginx
-
-    print(f"{collection.estimated_document_count()} logs")
-
+    logs_collection = client.logs.nginx
+    total = logs_collection.count_documents({})
+    get = logs_collection.count_documents({"method": "GET"})
+    post = logs_collection.count_documents({"method": "POST"})
+    put = logs_collection.count_documents({"method": "PUT"})
+    patch = logs_collection.count_documents({"method": "PATCH"})
+    delete = logs_collection.count_documents({"method": "DELETE"})
+    path = logs_collection.count_documents(
+        {"method": "GET", "path": "/status"})
+    print(f"{total} logs")
     print("Methods:")
-    for method in ["GET", "POST", "PUT", "PATCH", "DELETE"]:
-        method_count = collection.count_documents({'method': method})
-        print(f"\tmethod {method}: {method_count}")
+    print(f"\tmethod GET: {get}")
+    print(f"\tmethod POST: {post}")
+    print(f"\tmethod PUT: {put}")
+    print(f"\tmethod PATCH: {patch}")
+    print(f"\tmethod DELETE: {delete}")
+    print(f"{path} status check")
 
-    check_get = collection.count_documents({
-        'method': 'GET', 'path': "/status"
-    })
-    print(f"{check_get} status check")
 
-    print("IPs:")
-    top_ips = collection.aggregate([
-        {"$group":
-            {
-                "_id": "$ip",
-                "count": {"$sum": 1}
-            }
-        },
-        {"$sort": {"count": -1}},
-        {"$limit": 10},
-        {"$project": {
-            "_id": 0,
-            "ip": "$_id",
-            "count": 1
-        }}
-    ])
-    for ip in top_ips:
-        print(f"\t{ip.get('ip')}: {ip.get('count')}")
+if __name__ == "__main__":
+    log_stats()
